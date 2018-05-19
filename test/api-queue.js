@@ -51,6 +51,45 @@ describe('Managed API Queue', function () {
     })
   })
 
+  it('should get all pages', function () {
+    const subject = new ApiQueue({ api })
+    td.when(api.getRateLimit()).thenResolve({ remaining: 999, reset: 0 })
+
+    td.when(api.getItems()).thenResolve({ data: ['one'] })
+    td.when(api.hasNextPage({ data: ['one'] })).thenReturn(true)
+    td.when(api.getNextPage({ data: ['one'] })).thenResolve({ data: ['two'] })
+    td.when(api.hasNextPage({ data: ['two'] })).thenReturn(true)
+    td.when(api.getNextPage({ data: ['two'] })).thenResolve({ data: ['three'] })
+    td.when(api.getNextPage({ data: ['three'] })).thenReturn(false)
+
+    subject
+      .getAllItems()
+      .then(items => expect(items).to.deep.equal(['one', 'two', 'three']))
+  })
+
+  it('should get all pages even if the rate limit is reached', function (done) {
+    const subject = new ApiQueue({ api })
+    td
+      .when(api.getRateLimit())
+      .thenResolve(
+        { remaining: 2, reset: 0 },
+        { remaining: 0, reset: Date.now() + 1000 },
+        { remaining: 999, reset: 0 }
+      )
+
+    td.when(api.getItems()).thenResolve({ data: ['one'] })
+    td.when(api.hasNextPage({ data: ['one'] })).thenReturn(true)
+    td.when(api.getNextPage({ data: ['one'] })).thenResolve({ data: ['two'] })
+    td.when(api.hasNextPage({ data: ['two'] })).thenReturn(true)
+    td.when(api.getNextPage({ data: ['two'] })).thenResolve({ data: ['three'] })
+    td.when(api.hasNextPage({ data: ['three'] })).thenReturn(false)
+
+    subject.getAllItems().then(items => {
+      expect(items).to.deep.equal(['one', 'two', 'three'])
+      done()
+    })
+  })
+
   it('should pause when rate limit is encountered mid-queue', function (done) {
     const subject = new ApiQueue({ api })
     td.when(api.getRateLimit()).thenResolve(
@@ -119,8 +158,6 @@ describe('Managed API Queue', function () {
   it('should retry requests that fail due to rate limits', done => {
     const subject = new ApiQueue({ api })
 
-    const resetTime = Math.floor(Date.now() / 1000) + 1
-
     td.when(api.getItem(1)).thenResolve('one')
     td.when(api.getItem(2)).thenResolve('two')
     // We `when` this second so that it will be run first. Tforhou _gh it's harder
@@ -132,9 +169,9 @@ describe('Managed API Queue', function () {
     td
       .when(api.getRateLimit())
       .thenResolve(
-        { remaining: 10, reset: resetTime },
-        { remaining: 0, reset: resetTime },
-        { remaining: 10, reset: resetTime + 1 }
+        { remaining: 10, reset: Date.now() + 1000 },
+        { remaining: 0, reset: Date.now() + 1000 },
+        { remaining: 10, reset: Date.now() + 2000 }
       )
 
     const results = []
