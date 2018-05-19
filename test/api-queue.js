@@ -1,8 +1,14 @@
 const expect = require('chai').expect
 const ApiQueue = require('./../lib/api-queue')
+const Api = require('./../lib/api')
 const td = require('testdouble')
 
 describe('Managed API Queue', function () {
+  let api
+  before(function () {
+    api = td.object(new Api())
+  })
+
   it('should add a manager job to the front of the queue', function () {
     const subject = new ApiQueue()
     const jobs = subject.getJobs()
@@ -16,22 +22,16 @@ describe('Managed API Queue', function () {
   })
 
   it('should enqueue and run api calls', function () {
-    const request = td.object(['get'])
-    const subject = new ApiQueue({ request })
-    td
-      .when(request.get('/rate/limit'))
-      .thenResolve({ remaining: 999, reset: 0 })
-    td.when(request.get('/some/url')).thenResolve('something')
+    const subject = new ApiQueue({ api })
+    td.when(api.getRateLimit()).thenResolve({ remaining: 999, reset: 0 })
+    td.when(api.getItems()).thenResolve('something')
     return subject.getItems().then(res => expect(res).to.equal('something'))
   })
 
   it('should re-queue manager job when all api calls complete', function () {
-    const request = td.object(['get'])
-    const subject = new ApiQueue({ request })
-    td
-      .when(request.get('/rate/limit'))
-      .thenResolve({ remaining: 999, reset: 0 })
-    td.when(request.get('/some/url')).thenResolve('something')
+    const subject = new ApiQueue({ api })
+    td.when(api.getRateLimit()).thenResolve({ remaining: 999, reset: 0 })
+    td.when(api.getItems()).thenResolve('something')
     return subject.getItems().then(res => {
       const jobs = subject.getJobs()
       expect(jobs.length).to.equal(1)
@@ -40,12 +40,9 @@ describe('Managed API Queue', function () {
   })
 
   it('should stop running when all api calls complete', function (done) {
-    const request = td.object(['get'])
-    const subject = new ApiQueue({ request })
-    td
-      .when(request.get('/rate/limit'))
-      .thenResolve({ remaining: 999, reset: 0 })
-    td.when(request.get('/some/url')).thenResolve('something')
+    const subject = new ApiQueue({ api })
+    td.when(api.getRateLimit()).thenResolve({ remaining: 999, reset: 0 })
+    td.when(api.getItems()).thenResolve('something')
     subject.getItems().then(res => {
       setTimeout(() => {
         expect(subject.isRunning()).to.equal(false)
@@ -55,9 +52,8 @@ describe('Managed API Queue', function () {
   })
 
   it('should pause when rate limit is encountered mid-queue', function (done) {
-    const request = td.object(['get'])
-    const subject = new ApiQueue({ request })
-    td.when(request.get('/rate/limit')).thenResolve(
+    const subject = new ApiQueue({ api })
+    td.when(api.getRateLimit()).thenResolve(
       { remaining: 2, reset: 0 },
       {
         remaining: 0,
@@ -65,9 +61,9 @@ describe('Managed API Queue', function () {
       },
       { remaining: 2, reset: 0 }
     )
-    td.when(request.get('/some/url/1')).thenResolve('one')
-    td.when(request.get('/some/url/2')).thenResolve('two')
-    td.when(request.get('/some/url/3')).thenResolve('three')
+    td.when(api.getItem(1)).thenResolve('one')
+    td.when(api.getItem(2)).thenResolve('two')
+    td.when(api.getItem(3)).thenResolve('three')
 
     const results = []
 
@@ -85,15 +81,12 @@ describe('Managed API Queue', function () {
   })
 
   it('should pause and restart when there is a gap in requests', done => {
-    const request = td.object(['get'])
-    const subject = new ApiQueue({ request })
+    const subject = new ApiQueue({ api })
 
-    td.when(request.get('/some/url/1')).thenResolve('one')
-    td.when(request.get('/some/url/2')).thenResolve('two')
-    td.when(request.get('/some/url/3')).thenResolve('three')
-    td
-      .when(request.get('/rate/limit'))
-      .thenResolve({ remaining: 9999, reset: 0 })
+    td.when(api.getItem(1)).thenResolve('one')
+    td.when(api.getItem(2)).thenResolve('two')
+    td.when(api.getItem(3)).thenResolve('three')
+    td.when(api.getRateLimit()).thenResolve({ remaining: 9999, reset: 0 })
 
     const results = []
 
@@ -124,21 +117,20 @@ describe('Managed API Queue', function () {
   })
 
   it('should retry requests that fail due to rate limits', done => {
-    const request = td.object(['get'])
-    const subject = new ApiQueue({ request })
+    const subject = new ApiQueue({ api })
 
     const resetTime = Math.floor(Date.now() / 1000) + 1
 
-    td.when(request.get('/some/url/1')).thenResolve('one')
-    td.when(request.get('/some/url/2')).thenResolve('two')
+    td.when(api.getItem(1)).thenResolve('one')
+    td.when(api.getItem(2)).thenResolve('two')
     // We `when` this second so that it will be run first. Tforhou _gh it's harder
     // to read sequentially, it's how mocking libraries work.
     td
-      .when(request.get('/some/url/2'), { times: 1 })
+      .when(api.getItem(2), { times: 1 })
       .thenReject({ message: 'API rate limit exceeded', code: 403 })
-    td.when(request.get('/some/url/3')).thenResolve('three')
+    td.when(api.getItem(3)).thenResolve('three')
     td
-      .when(request.get('/rate/limit'))
+      .when(api.getRateLimit())
       .thenResolve(
         { remaining: 10, reset: resetTime },
         { remaining: 0, reset: resetTime },
