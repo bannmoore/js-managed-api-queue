@@ -11,14 +11,15 @@ describe('Managed API Queue', function () {
 
   it('should add a manager job to the front of the queue', function () {
     const subject = new ApiQueue()
-    const jobs = subject.getJobs()
-    expect(jobs.length).to.equal(1)
-    expect(jobs[0].toString()).to.equal(subject.manager.toString())
+    expect(subject.queue.jobs.length).to.equal(1)
+    expect(subject.queue.jobs[0].toString()).to.equal(
+      subject.manager.toString()
+    )
   })
 
   it('should pause while waiting for api calls', function () {
     const subject = new ApiQueue()
-    expect(subject.isRunning()).to.equal(false)
+    expect(subject.queue.running).to.equal(false)
   })
 
   it('should enqueue and run api calls', function () {
@@ -33,9 +34,10 @@ describe('Managed API Queue', function () {
     td.when(api.getRateLimit()).thenResolve({ remaining: 999, reset: 0 })
     td.when(api.getItems()).thenResolve('something')
     return subject.getItems().then(res => {
-      const jobs = subject.getJobs()
-      expect(jobs.length).to.equal(1)
-      expect(jobs[0].toString()).to.equal(subject.manager.toString())
+      expect(subject.queue.jobs.length).to.equal(1)
+      expect(subject.queue.jobs[0].toString()).to.equal(
+        subject.manager.toString()
+      )
     })
   })
 
@@ -45,7 +47,7 @@ describe('Managed API Queue', function () {
     td.when(api.getItems()).thenResolve('something')
     subject.getItems().then(res => {
       setTimeout(() => {
-        expect(subject.isRunning()).to.equal(false)
+        expect(subject.queue.running).to.equal(false)
         done()
       }, 100)
     })
@@ -133,8 +135,7 @@ describe('Managed API Queue', function () {
     subject.getItem(2).then(result => results.push(result))
 
     setTimeout(() => {
-      // A little inside baseball, but an accurate test of a stopped queue.
-      results.push(`running: ${subject.isRunning()}`)
+      results.push(`running: ${subject.queue.running}`)
     }, 250)
 
     setTimeout(() => {
@@ -142,13 +143,11 @@ describe('Managed API Queue', function () {
     }, 500)
 
     setTimeout(() => {
-      // check that queue is stopped with one job (watchdog)
-      const jobs = subject.getJobs()
-      expect(jobs.length).to.equal(1)
-      expect(jobs[0].toString()).to.equal(subject.manager.toString())
-      expect(subject.isRunning()).to.equal(false)
-
-      // check results
+      expect(subject.queue.jobs.length).to.equal(1)
+      expect(subject.queue.jobs[0].toString()).to.equal(
+        subject.manager.toString()
+      )
+      expect(subject.queue.running).to.equal(false)
       expect(results).to.deep.equal(['one', 'two', 'running: false', 'three'])
 
       done()
@@ -160,8 +159,6 @@ describe('Managed API Queue', function () {
 
     td.when(api.getItem(1)).thenResolve('one')
     td.when(api.getItem(2)).thenResolve('two')
-    // We `when` this second so that it will be run first. Tforhou _gh it's harder
-    // to read sequentially, it's how mocking libraries work.
     td
       .when(api.getItem(2), { times: 1 })
       .thenReject({ message: 'API rate limit exceeded', code: 403 })
@@ -181,9 +178,7 @@ describe('Managed API Queue', function () {
     subject.getItem(3).then(result => results.push(result))
 
     setTimeout(() => {
-      // Because only `two` failed, only `two` is retried.
       expect(results).to.deep.equal(['one', 'three', 'two'])
-
       done()
     }, 1500)
   })
