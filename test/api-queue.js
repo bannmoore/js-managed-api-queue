@@ -13,7 +13,7 @@ describe('Managed API Queue', function () {
     const subject = new ApiQueue()
     expect(subject.queue.jobs.length).to.equal(1)
     expect(subject.queue.jobs[0].toString()).to.equal(
-      subject.manager.toString()
+      subject.manager.bind(subject).toString()
     )
   })
 
@@ -36,7 +36,7 @@ describe('Managed API Queue', function () {
     return subject.getItems().then(res => {
       expect(subject.queue.jobs.length).to.equal(1)
       expect(subject.queue.jobs[0].toString()).to.equal(
-        subject.manager.toString()
+        subject.manager.bind(subject).toString()
       )
     })
   })
@@ -145,7 +145,7 @@ describe('Managed API Queue', function () {
     setTimeout(() => {
       expect(subject.queue.jobs.length).to.equal(1)
       expect(subject.queue.jobs[0].toString()).to.equal(
-        subject.manager.toString()
+        subject.manager.bind(subject).toString()
       )
       expect(subject.queue.running).to.equal(false)
       expect(results).to.deep.equal(['one', 'two', 'running: false', 'three'])
